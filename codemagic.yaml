@@ -1,0 +1,75 @@
+# Codemagic build: unsigned .ipa for Flix.
+#
+# Produces an ad-hoc-installable package with no Apple account and no
+# provisioning profile. Signing happens later on the user's own machine with
+# Sideloadly and a free Apple ID (7-day certificate), which is why the bundle is
+# built with CODE_SIGNING_ALLOWED=NO and then packaged by hand.
+
+workflows:
+  ios-unsigned:
+    name: Flix unsigned IPA
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      xcode: latest
+      vars:
+        SCHEME: Flix
+        PROJECT: Flix.xcodeproj
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+    scripts:
+      - name: Toolchain report
+        script: |
+          set -e
+          xcodebuild -version
+          sw_vers
+          which xcodegen || brew install xcodegen
+          xcodegen --version
+
+      - name: Generate Xcode project
+        script: |
+          set -e
+          xcodegen generate --spec project.yml
+          ls -la Flix.xcodeproj | head -20
+
+      - name: Build for device
+        script: |
+          set -e
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            ONLY_ACTIVE_ARCH=NO \
+            -destination "generic/platform=iOS" \
+            build
+
+      - name: Package unsigned IPA
+        script: |
+          set -e
+          APP_PATH="$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -1)"
+          test -n "$APP_PATH" || { echo "no .app produced"; exit 1; }
+          echo "app: $APP_PATH"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist" || true
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Info.plist" || true
+          rm -rf Payload Flix-unsigned.ipa
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -qry Flix-unsigned.ipa Payload
+          ls -lh Flix-unsigned.ipa
+          shasum -a 256 Flix-unsigned.ipa | tee Flix-unsigned.ipa.sha256
+
+    artifacts:
+      - Flix-unsigned.ipa
+      - Flix-unsigned.ipa.sha256
+      - build/Build/Products/Release-iphoneos/*.app
+      - /tmp/xcodebuild_logs/*.log
