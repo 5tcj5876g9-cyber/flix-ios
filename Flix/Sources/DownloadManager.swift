@@ -128,7 +128,10 @@ final class DownloadManager: NSObject, ObservableObject {
     // MARK: - HLS
 
     private func startHLS(job: Job, url: URL) {
-        let asset = AVURLAsset(url: url, options: [AVURLAssetHTTPHeaderFieldsKey: ["Referer": url.absoluteString]])
+        // AVURLAssetHTTPHeaderFieldsKey has no public Swift constant; AVFoundation
+        // reads it from the options dictionary by name, so the literal is used.
+        let options: [String: Any] = ["AVURLAssetHTTPHeaderFieldsKey": ["Referer": url.absoluteString]]
+        let asset = AVURLAsset(url: url, options: options)
         let task = hlsSession.makeAssetDownloadTask(
             asset: asset,
             assetTitle: job.title,
